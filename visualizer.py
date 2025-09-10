@@ -2,11 +2,9 @@
 
 import pygame
 from constants import *
-# Важно: импортируем классы игроков, чтобы проверить тип
 from player import HumanPlayer 
 
 class GameVisualizer:
-    # ... __init__ и другие методы без изменений ...
     def __init__(self):
         pygame.init()
         self.CELL_SIZE = 60; self.INFO_PANEL_HEIGHT = 80
@@ -28,7 +26,6 @@ class GameVisualizer:
         }
 
     def draw_menu(self, buttons):
-        # ... без изменений ...
         self.screen.fill(self.COLOR_BG)
         title = self.font_menu.render("Стратегия 10x10", True, self.COLOR_TEXT)
         title_rect = title.get_rect(center=(self.WIDTH / 2, self.HEIGHT / 4))
@@ -42,16 +39,14 @@ class GameVisualizer:
             self.screen.blit(text, text_rect)
         pygame.display.flip()
 
-    ### ИЗМЕНЕНО: Передаем active_player дальше ###
     def draw_game_state(self, game_state, active_player=None):
         self.screen.fill(self.COLOR_BG)
         self._draw_info_panel(game_state)
         self._draw_board(game_state, active_player)
-        self._draw_ingame_ui(active_player) # Передаем сюда
+        self._draw_ingame_ui(active_player)
         pygame.display.flip()
 
     def _draw_info_panel(self, game_state):
-        # ... без изменений ...
         turn_text = self.font_info.render(f"Ход: {game_state.turn_count}", True, self.COLOR_TEXT)
         player_turn = "Игрок 1 (Синие)" if game_state.current_player == PLAYER_1 else "Игрок 2 (Красные)"
         player_color = self.COLOR_P1 if game_state.current_player == PLAYER_1 else self.COLOR_P2
@@ -62,7 +57,6 @@ class GameVisualizer:
         self.screen.blit(turn_text, (10, 10)); self.screen.blit(turn_queue_text, (10, 40)); self.screen.blit(coins_text, coins_rect)
 
     def _draw_board(self, game_state, active_player):
-        # ... без изменений ...
         y_offset = self.INFO_PANEL_HEIGHT
         for r in range(BOARD_SIZE):
             for c in range(BOARD_SIZE):
@@ -71,16 +65,18 @@ class GameVisualizer:
                 if territory_owner == PLAYER_1: pygame.draw.rect(self.screen, self.TERRITORY_P1, rect)
                 elif territory_owner == PLAYER_2: pygame.draw.rect(self.screen, self.TERRITORY_P2, rect)
                 pygame.draw.rect(self.screen, self.COLOR_GRID, rect, 1)
-                if (r, c) in game_state.moved_units_this_turn:
+                
+                # <<< ИСПРАВЛЕНИЕ: Правильная проверка для NumPy массива >>>
+                if game_state.moved_units_this_turn[r, c]:
                     s = pygame.Surface((self.CELL_SIZE, self.CELL_SIZE), pygame.SRCALPHA)
                     s.fill((0,0,0,80)); self.screen.blit(s, (rect.x, rect.y))
+                
                 if hasattr(active_player, 'selected_unit_pos') and active_player.selected_unit_pos == (r, c):
                     pygame.draw.rect(self.screen, self.COLOR_SELECTION, rect, 3)
                 unit_type = game_state.units_board[r, c]
                 self._draw_unit(unit_type, rect)
 
     def _draw_unit(self, unit_type, rect):
-        # ... без изменений ...
         center = rect.center; radius = self.CELL_SIZE // 3
         if unit_type == PEASANT_P1: pygame.draw.circle(self.screen, self.COLOR_P1, center, radius)
         elif unit_type == WARRIOR_P1:
@@ -91,9 +87,7 @@ class GameVisualizer:
             warrior_rect = pygame.Rect(0, 0, radius * 1.8, radius * 1.8); warrior_rect.center = center
             pygame.draw.rect(self.screen, self.COLOR_P2, warrior_rect)
     
-    ### ИЗМЕНЕНО: Принимаем active_player и рисуем кнопку условно ###
     def _draw_ingame_ui(self, active_player):
-        # Кнопка возврата в меню
         menu_btn_rect = pygame.Rect(self.WIDTH - 130, 5, 120, 30)
         pygame.draw.rect(self.screen, self.COLOR_BUTTON, menu_btn_rect, border_radius=5)
         text = self.font_info.render("В меню", True, self.COLOR_TEXT)
@@ -101,7 +95,6 @@ class GameVisualizer:
         self.screen.blit(text, text_rect)
         self.ui_elements['menu_btn'] = menu_btn_rect
         
-        # Кнопка завершения хода (только для человека)
         if isinstance(active_player, HumanPlayer):
             end_turn_btn_rect = pygame.Rect(self.WIDTH // 2 - 100, self.HEIGHT - 45, 200, 40)
             self.ui_elements['end_turn_btn'] = end_turn_btn_rect
@@ -111,7 +104,6 @@ class GameVisualizer:
             self.screen.blit(text, text_rect)
 
     def show_winner_screen(self, winner):
-        # ... без изменений ...
         if winner == 1e-4: text = "Ничья!"; color = self.COLOR_TEXT
         elif winner == PLAYER_1: text = "Победили Синие!"; color = self.COLOR_P1
         else: text = "Победили Красные!"; color = self.COLOR_P2

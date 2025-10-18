@@ -1,5 +1,3 @@
-# visualizer.py
-
 import pygame
 from constants import *
 from player import HumanPlayer 
@@ -66,7 +64,6 @@ class GameVisualizer:
                 elif territory_owner == PLAYER_2: pygame.draw.rect(self.screen, self.TERRITORY_P2, rect)
                 pygame.draw.rect(self.screen, self.COLOR_GRID, rect, 1)
                 
-                # <<< ИСПРАВЛЕНИЕ: Правильная проверка для NumPy массива >>>
                 if game_state.moved_units_this_turn[r, c]:
                     s = pygame.Surface((self.CELL_SIZE, self.CELL_SIZE), pygame.SRCALPHA)
                     s.fill((0,0,0,80)); self.screen.blit(s, (rect.x, rect.y))

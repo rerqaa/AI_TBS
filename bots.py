@@ -1,5 +1,3 @@
-# bots.py
-
 import random
 import torch
 import torch.nn.functional as F
@@ -22,26 +20,16 @@ class RandomBotPlayer(Player):
                 return ('end_turn',)
 
 class AIPlayer(Player):
-    """Игрок, управляемый MCTS и нейросетью."""
-    # <<< ИЗМЕНЕНИЕ №1: Добавляем mcts_batch_size в аргументы конструктора >>>
     def __init__(self, player_id, model, num_simulations=50, device="cpu", c_puct=1.0, mcts_batch_size=32):
         super().__init__(player_id)
         self.model = model
         self.num_simulations = num_simulations
         self.device = device
         self.c_puct = c_puct
-        # <<< ИЗМЕНЕНИЕ №2: Создаем MCTS searcher один раз и передаем ему mcts_batch_size >>>
-        # Это также небольшая оптимизация, чтобы не создавать объект на каждый ход.
         self.mcts_searcher = MCTS(self.model, c_puct=self.c_puct, device=self.device, mcts_batch_size=mcts_batch_size)
 
     def get_move(self, game_state, events, temperature=0.0, *args, **kwargs):
         self.model.eval()
-        
-        # Запуск MCTS для поиска лучшего хода
-        # <<< ИЗМЕНЕНИЕ №3: Используем уже созданный mcts_searcher >>>
         root_node = self.mcts_searcher.search(game_state, self.num_simulations)
-        
-        # Выбор хода на основе результатов MCTS
         chosen_move, _ = self.mcts_searcher.get_action_probs(root_node, temperature=temperature)
-            
         return chosen_move

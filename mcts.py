@@ -1,5 +1,3 @@
-# mcts.py
-
 import numpy as np
 import math
 import torch
@@ -50,7 +48,6 @@ class Node:
 
 
 class MCTS:
-    # <<< ИЗМЕНЕНИЕ: Добавляем mcts_batch_size в конструктор >>>
     def __init__(self, model, c_puct=1.0, device="cpu", mcts_batch_size=32):
         self.model = model
         self.c_puct = c_puct
@@ -69,44 +66,48 @@ class MCTS:
         
         return node, temp_state
 
-    def search(self, game_state, num_simulations, dirichlet_alpha=None, dirichlet_epsilon=0.25):
-        root = Node(None, 1.0)
-        
-        # <<< ИЗМЕНЕНИЕ: Добавляем non_blocking=True для асинхронной передачи >>>
-        board_tensor = self.model.get_observation(game_state).to(self.device, non_blocking=True)
-        with torch.no_grad(), autocast(device_type='cuda', enabled=(self.device.type == 'cuda')):
-            policy_logits, value = self.model(board_tensor)
-        
-        root.backpropagate(value.item())
+    def search(self, game_state, num_simulations, dirichlet_alpha=None, dirichlet_epsilon=0.25, root=None):
+        if root is None:
+            root = Node(None, 1.0)
+        else:
+            root.parent = None # Отсоединяем от старого дерева
 
-        policy_probs = F.softmax(policy_logits, dim=1).squeeze(0).cpu().numpy()
-        legal_moves = game_state.get_legal_moves()
-        legal_moves_indices = [ACTION_TO_INDEX[m] for m in legal_moves if m in ACTION_TO_INDEX]
-        
-        mask = np.zeros_like(policy_probs)
-        if legal_moves_indices:
-            mask[legal_moves_indices] = 1
-        policy_probs *= mask
-        
-        sum_probs = np.sum(policy_probs)
-        if sum_probs > 1e-6:
-            policy_probs /= sum_probs
-        elif legal_moves_indices:
-            prob = 1.0 / len(legal_moves_indices)
-            for i in legal_moves_indices: policy_probs[i] = prob
-        
-        if dirichlet_alpha is not None and legal_moves_indices:
-            noise = np.random.dirichlet([dirichlet_alpha] * len(legal_moves_indices))
-            valid_indices = np.array(legal_moves_indices)
-            policy_probs[valid_indices] = (1 - dirichlet_epsilon) * policy_probs[valid_indices] + dirichlet_epsilon * noise
+        if root.is_leaf():
+            spatial_tensor, global_tensor = self.model.get_observation(game_state)
+            spatial_tensor = spatial_tensor.to(self.device, non_blocking=True)
+            global_tensor = global_tensor.to(self.device, non_blocking=True)
+            with torch.no_grad(), autocast(device_type='cuda', enabled=(self.device.type == 'cuda')):
+                policy_logits, value = self.model(spatial_tensor, global_tensor)
+            
+            root.backpropagate(value.item())
 
-        root.expand(policy_probs, legal_moves_indices)
+            policy_probs = F.softmax(policy_logits, dim=1).squeeze(0).cpu().numpy()
+            legal_moves = game_state.get_legal_moves()
+            legal_moves_indices = [ACTION_TO_INDEX[m] for m in legal_moves if m in ACTION_TO_INDEX]
+            
+            mask = np.zeros_like(policy_probs)
+            if legal_moves_indices:
+                mask[legal_moves_indices] = 1
+            policy_probs *= mask
+            
+            sum_probs = np.sum(policy_probs)
+            if sum_probs > 1e-6:
+                policy_probs /= sum_probs
+            elif legal_moves_indices:
+                prob = 1.0 / len(legal_moves_indices)
+                for i in legal_moves_indices: policy_probs[i] = prob
+            
+            if dirichlet_alpha is not None and legal_moves_indices:
+                noise = np.random.dirichlet([dirichlet_alpha] * len(legal_moves_indices))
+                valid_indices = np.array(legal_moves_indices)
+                policy_probs[valid_indices] = (1 - dirichlet_epsilon) * policy_probs[valid_indices] + dirichlet_epsilon * noise
+
+            root.expand(policy_probs, legal_moves_indices)
 
         completed_simulations = 0
         while completed_simulations < num_simulations:
             batch_requests = []
             
-            # <<< ИЗМЕНЕНИЕ: Используем self.mcts_batch_size >>>
             for _ in range(self.mcts_batch_size):
                 if completed_simulations >= num_simulations: break
 
@@ -126,13 +127,18 @@ class MCTS:
             if not batch_requests:
                 continue
 
-            # <<< ИЗМЕНЕНИЕ: Добавляем non_blocking=True для асинхронной передачи >>>
-            board_tensors = torch.cat(
-                [self.model.get_observation(req['state']) for req in batch_requests]
-            ).to(self.device, non_blocking=True)
+            spatial_tensors_list = []
+            global_tensors_list = []
+            for req in batch_requests:
+                spatial, global_feat = self.model.get_observation(req['state'])
+                spatial_tensors_list.append(spatial)
+                global_tensors_list.append(global_feat)
+            
+            spatial_tensors = torch.cat(spatial_tensors_list).to(self.device, non_blocking=True)
+            global_tensors = torch.cat(global_tensors_list).to(self.device, non_blocking=True)
 
             with torch.no_grad(), autocast(device_type='cuda', enabled=(self.device.type == 'cuda')):
-                policy_logits_batch, value_batch = self.model(board_tensors)
+                policy_logits_batch, value_batch = self.model(spatial_tensors, global_tensors)
             
             policy_probs_batch = F.softmax(policy_logits_batch, dim=1).cpu().numpy()
             values = value_batch.cpu().numpy().flatten()
@@ -190,8 +196,14 @@ class MCTS:
             pi[best_action] = 1.0
             return INDEX_TO_ACTION[best_action], pi
 
-        visit_counts_temp = visit_counts**(1.0 / temperature)
-        probs = visit_counts_temp / np.sum(visit_counts_temp)
+        log_visits = np.log(visit_counts + 1e-10) / temperature
+        log_visits = log_visits - np.max(log_visits)
+        probs = np.exp(log_visits)
+        probs /= np.sum(probs)
+        
+        if not np.isclose(np.sum(probs), 1.0):
+            probs = visit_counts / np.sum(visit_counts)
+
         chosen_action_idx_in_array = np.random.choice(len(probs), p=probs)
         chosen_action = action_indices[chosen_action_idx_in_array]
         

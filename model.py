@@ -1,5 +1,3 @@
-# model.py
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,15 +7,11 @@ from utils import (
     ACTION_SPACE_SIZE, ACTION_TO_INDEX, INDEX_TO_ACTION,
     MOVE_DIRECTIONS, MERGE_DIRECTIONS,
     BUILD_PEASANT_PLANE, BUILD_WARRIOR_PLANE, 
-    # END_TURN_PLANE, # УДАЛЕНО
+    END_TURN_PLANE,
     NUM_ACTION_PLANES
 )
 
 class ConvolutionalBlock(nn.Module):
-    """
-    Полноценный остаточный блок в стиле ResNet.
-    Структура: Conv -> BatchNorm -> ReLU -> Conv -> BatchNorm
-    """
     def __init__(self, num_channels):
         super().__init__()
         self.conv1 = nn.Conv2d(num_channels, num_channels, kernel_size=3, stride=1, padding=1, bias=False)
@@ -29,16 +23,11 @@ class ConvolutionalBlock(nn.Module):
         residual = x
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
-        # Прибавляем residual ПЕРЕД финальной активацией
         out += residual
         return F.relu(out)
 
 class StrategyNet(nn.Module):
-    """
-    Основная архитектура нейросети в стиле AlphaZero с остаточными блоками
-    и пространственной головой политики.
-    """
-    def __init__(self, num_input_channels=6, num_blocks=5, num_filters=64):
+    def __init__(self, num_input_channels=6, num_blocks=10, num_filters=128, num_global_features=2):
         super().__init__()
         
         self.initial_conv = nn.Conv2d(num_input_channels, num_filters, kernel_size=3, stride=1, padding=1, bias=False)
@@ -46,15 +35,9 @@ class StrategyNet(nn.Module):
         
         self.residual_blocks = nn.ModuleList([ConvolutionalBlock(num_filters) for _ in range(num_blocks)])
         
-        # --- ГОЛОВА ПОЛИТИКИ ---
-        # 1. Сверточная часть для пространственных действий
         self.policy_conv = nn.Conv2d(num_filters, NUM_ACTION_PLANES, kernel_size=1)
-        # 2. Полносвязная часть для НЕпространственных действий (end_turn)
-        self.policy_fc_end_turn = nn.Linear(num_filters, 1)
-
-        # --- ГОЛОВА ЦЕННОСТИ ---
-        self.value_conv = nn.Conv2d(num_filters, 1, kernel_size=1)
-        self.value_fc1 = nn.Linear(1 * BOARD_SIZE * BOARD_SIZE, 64)
+        
+        self.value_fc1 = nn.Linear(num_filters + num_global_features, 64)
         self.value_fc2 = nn.Linear(64, 1)
 
         self._create_action_map()
@@ -70,13 +53,10 @@ class StrategyNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
-                # Для полносвязных слоев лучше подходит стандартная инициализация Pytorch
-                # или нормальное распределение с небольшим std.
                 nn.init.normal_(m.weight, 0, 0.01)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
     
-    # Метод _create_action_map остается почти без изменений
     def _create_action_map(self):
         map_plane_indices = []
         map_r_indices = []
@@ -119,67 +99,63 @@ class StrategyNet(nn.Module):
         self.register_buffer('map_action_indices', torch.LongTensor(map_action_indices))
         
 
-    def forward(self, x):
-        # Общая "башня"
-        x = F.relu(self.initial_bn(self.initial_conv(x)))
+    def forward(self, spatial_input, global_input):
+        x = F.relu(self.initial_bn(self.initial_conv(spatial_input)))
         for block in self.residual_blocks:
             x = block(x)
 
-        # --- Голова Политики ---
         batch_size = x.size(0)
+        
         policy_logits = torch.zeros(batch_size, ACTION_SPACE_SIZE, device=x.device)
-
-        # 1. Обработка пространственных действий
         policy_planes = self.policy_conv(x)
         
         batch_indices = torch.arange(batch_size, device=x.device).unsqueeze(1)
         values_to_put = policy_planes[batch_indices, self.map_plane_indices, self.map_r_indices, self.map_c_indices]
         policy_logits[batch_indices, self.map_action_indices] = values_to_put.float()
         
-        # 2. ### НОВАЯ, ПРАВИЛЬНАЯ ЛОГИКА ДЛЯ end_turn ###
-        # Усредняем пространственные признаки до одного вектора
-        avg_features = F.adaptive_avg_pool2d(x, (1, 1)).view(batch_size, -1)
-        # Пропускаем через полносвязный слой
-        end_turn_logit = self.policy_fc_end_turn(avg_features)
-        # Вставляем полученный логит в общий вектор
-        policy_logits[:, self.end_turn_action_idx] = end_turn_logit.squeeze(-1).float()
+        end_turn_logit = policy_planes[:, END_TURN_PLANE, 0, 0]
+        policy_logits[:, self.end_turn_action_idx] = end_turn_logit.float()
         
-        # --- Голова Ценности ---
-        value = self.value_conv(x)
-        value = value.view(value.size(0), -1)
-        value = F.relu(self.value_fc1(value))
+        spatial_features = F.adaptive_avg_pool2d(x, (1, 1)).view(batch_size, -1)
+        combined_features = torch.cat([spatial_features, global_input], dim=1)
+        value = F.relu(self.value_fc1(combined_features))
         value = torch.tanh(self.value_fc2(value))
 
         return policy_logits, value
 
-    # Метод get_observation остается без изменений
     def get_observation(self, game_state):
-        my_peasants = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
-        my_warriors = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
-        my_territory = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
-        enemy_peasants = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
-        enemy_warriors = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
-        enemy_territory = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
+        spatial_tensor = np.zeros((6, BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
 
         p = game_state.current_player
+        opponent = -p
+        units_board = game_state.units_board
+        territory_board = game_state.territory_board
+
         if p == PLAYER_1:
-            my_peasants[game_state.units_board == PEASANT_P1] = 1
-            my_warriors[game_state.units_board == WARRIOR_P1] = 1
-            my_territory[game_state.territory_board == PLAYER_1] = 1
-            enemy_peasants[game_state.units_board == PEASANT_P2] = 1
-            enemy_warriors[game_state.units_board == WARRIOR_P2] = 1
-            enemy_territory[game_state.territory_board == PLAYER_2] = 1
-        else:
-            my_peasants[game_state.units_board == PEASANT_P2] = 1
-            my_warriors[game_state.units_board == WARRIOR_P2] = 1
-            my_territory[game_state.territory_board == PLAYER_2] = 1
-            enemy_peasants[game_state.units_board == PEASANT_P1] = 1
-            enemy_warriors[game_state.units_board == WARRIOR_P1] = 1
-            enemy_territory[game_state.territory_board == PLAYER_1] = 1
-            
-        state_tensor = np.stack([
-            my_peasants, my_warriors, my_territory,
-            enemy_peasants, enemy_warriors, enemy_territory
-        ])
+            spatial_tensor[0, units_board == PEASANT_P1] = 1
+            spatial_tensor[1, units_board == WARRIOR_P1] = 1
+            spatial_tensor[2, territory_board == PLAYER_1] = 1
+            spatial_tensor[3, units_board == PEASANT_P2] = 1
+            spatial_tensor[4, units_board == WARRIOR_P2] = 1
+            spatial_tensor[5, territory_board == PLAYER_2] = 1
+        else: # p == PLAYER_2
+            spatial_tensor[0, units_board == PEASANT_P2] = 1
+            spatial_tensor[1, units_board == WARRIOR_P2] = 1
+            spatial_tensor[2, territory_board == PLAYER_2] = 1
+            spatial_tensor[3, units_board == PEASANT_P1] = 1
+            spatial_tensor[4, units_board == WARRIOR_P1] = 1
+            spatial_tensor[5, territory_board == PLAYER_1] = 1
         
-        return torch.from_numpy(state_tensor).float().unsqueeze(0)
+        MAX_COINS_FOR_NORMALIZATION = 1000.0
+        my_coins = game_state.player_coins[p]
+        opponent_coins = game_state.player_coins[opponent]
+        
+        global_features = np.array([
+            min(my_coins, MAX_COINS_FOR_NORMALIZATION) / MAX_COINS_FOR_NORMALIZATION,
+            min(opponent_coins, MAX_COINS_FOR_NORMALIZATION) / MAX_COINS_FOR_NORMALIZATION
+        ], dtype=np.float32)
+            
+        return (
+            torch.from_numpy(spatial_tensor).float().unsqueeze(0),
+            torch.from_numpy(global_features).float().unsqueeze(0)
+        )

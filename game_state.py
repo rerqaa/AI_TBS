@@ -1,11 +1,9 @@
-# game_state.py
-
 import numpy as np
 import copy
 from constants import *
-import numba # <<< НОВОЕ: Импортируем Numba
+import numba
 
-# <<< НОВОЕ: Создаем jitclass для констант, чтобы Numba мог их использовать в скомпилированном коде >>>
+# Создаем специальный JIT-класс для констант, чтобы Numba мог эффективно к ним обращаться
 spec = [
     ('PLAYER_1', numba.int8), ('PLAYER_2', numba.int8), ('NEUTRAL', numba.int8),
     ('EMPTY', numba.int8), ('PEASANT_P1', numba.int8), ('WARRIOR_P1', numba.int8),
@@ -26,6 +24,7 @@ class NumbaConstants:
         self.WARRIOR_UPKEEP = WARRIOR_UPKEEP; self.INCOME_PER_CELL = INCOME_PER_CELL
         self.BOARD_SIZE = BOARD_SIZE; self.MAX_TURNS = MAX_TURNS
 
+# Создаем один экземпляр JIT-класса для использования в Numba-функциях
 C = NumbaConstants()
 
 
@@ -35,7 +34,6 @@ class GameState:
         self.units_board = np.zeros((board_size, board_size), dtype=np.int8)
         self.territory_board = np.zeros((board_size, board_size), dtype=np.int8)
         self.player_coins = {PLAYER_1: 0, PLAYER_2: 0}
-        # <<< ИЗМЕНЕНИЕ: Заменяем set на NumPy массив для совместимости с Numba >>>
         self.moved_units_this_turn = np.zeros((board_size, board_size), dtype=np.bool_)
         self._setup_initial_state()
 
@@ -51,19 +49,19 @@ class GameState:
         new_state.units_board = np.copy(self.units_board)
         new_state.territory_board = np.copy(self.territory_board)
         new_state.player_coins = self.player_coins.copy()
-        # <<< ИЗМЕНЕНИЕ: Копируем NumPy массив >>>
         new_state.moved_units_this_turn = np.copy(self.moved_units_this_turn)
         return new_state
 
     def get_legal_moves(self):
-        # <<< ИЗМЕНЕНИЕ: Эта функция теперь является оберткой для быстрой Numba-версии >>>
         my_coins = self.player_coins[self.current_player]
         
+        # Вызываем быструю Numba-функцию
         raw_moves = _get_legal_moves_numba(
             self.units_board, self.territory_board, self.moved_units_this_turn,
             self.current_player, my_coins, C
         )
         
+        # Преобразуем результат из Numba-формата в стандартный Python-формат
         legal_moves = []
         for move_data in raw_moves:
             move_type = move_data[0]
@@ -78,7 +76,7 @@ class GameState:
                 legal_moves.append(('build_warrior', (move_data[1], move_data[2])))
         
         legal_moves.append(('end_turn',))
-        return sorted(list(set(legal_moves)))
+        return legal_moves
 
     def apply_move(self, move):
         new_state = self.clone()
@@ -91,22 +89,22 @@ class GameState:
             unit = new_state.units_board[from_pos]
             new_state.units_board[to_pos] = unit; new_state.units_board[from_pos] = EMPTY
             new_state.territory_board[to_pos] = new_state.current_player
-            new_state.moved_units_this_turn[to_pos] = True # <<< ИЗМЕНЕНИЕ
+            new_state.moved_units_this_turn[to_pos] = True
         elif move_type == 'build_peasant':
             pos = move[1]
             new_state.player_coins[new_state.current_player] -= PEASANT_COST
             new_state.units_board[pos] = my_peasant_type
-            new_state.moved_units_this_turn[pos] = True # <<< ИЗМЕНЕНИЕ
+            new_state.moved_units_this_turn[pos] = True
         elif move_type == 'build_warrior':
             pos = move[1]
             new_state.player_coins[new_state.current_player] -= WARRIOR_COST
             new_state.units_board[pos] = my_warrior_type
-            new_state.moved_units_this_turn[pos] = True # <<< ИЗМЕНЕНИЕ
+            new_state.moved_units_this_turn[pos] = True
         elif move_type == 'merge':
             pos1, pos2 = move[1][0], move[1][1]
             new_state.player_coins[new_state.current_player] -= WARRIOR_MERGE_COST
             new_state.units_board[pos1] = EMPTY; new_state.units_board[pos2] = my_warrior_type
-            new_state.moved_units_this_turn[pos2] = True # <<< ИЗМЕНЕНИЕ
+            new_state.moved_units_this_turn[pos2] = True
         elif move_type == 'end_turn':
             new_state._end_turn()
         return new_state
@@ -114,6 +112,7 @@ class GameState:
     def _end_turn(self):
         player_ending_turn = self.current_player
         income = np.sum(self.territory_board == player_ending_turn) * INCOME_PER_CELL
+        # Оптимизируем подсчет юнитов, т.к. это тоже NumPy операции
         num_peasants = np.sum(self.units_board * player_ending_turn == 1)
         num_warriors = np.sum(self.units_board * player_ending_turn == 2)
         upkeep = (num_peasants * PEASANT_UPKEEP) + (num_warriors * WARRIOR_UPKEEP)
@@ -122,17 +121,18 @@ class GameState:
             self.player_coins[player_ending_turn] = 0
         if player_ending_turn == PLAYER_2:
             self.turn_count += 1
-        self.moved_units_this_turn.fill(False) # <<< ИЗМЕНЕНИЕ
+        self.moved_units_this_turn.fill(False)
         self.current_player *= -1
 
     def get_game_ended(self, max_turns=MAX_TURNS):
-        # <<< ИЗМЕНЕНИЕ: Вызываем быструю Numba-версию >>>
+        # Вызываем быструю Numba-функцию
         return _get_game_ended_numba(
             self.units_board, self.territory_board, self.current_player,
             self.turn_count, max_turns, self.board_size
         )
 
-# <<< НОВАЯ, СКОМПИЛИРОВАННАЯ ФУНКЦИЯ для get_legal_moves >>>
+# --- НОВЫЕ NUMBA-ФУНКЦИИ ---
+
 @numba.njit(cache=True)
 def _get_legal_moves_numba(units_board, territory_board, moved_units_this_turn, current_player, my_coins, C):
     legal_moves = numba.typed.List()
@@ -140,11 +140,13 @@ def _get_legal_moves_numba(units_board, territory_board, moved_units_this_turn, 
     my_peasant_type = C.PEASANT_P1 if current_player == C.PLAYER_1 else C.PEASANT_P2
     my_warrior_type = C.WARRIOR_P1 if current_player == C.PLAYER_1 else C.WARRIOR_P2
 
+    # Генерация ходов юнитов
     for r in range(board_size):
         for c in range(board_size):
-            if units_board[r, c] * current_player > 0:
+            if units_board[r, c] * current_player > 0: # Если это мой юнит
                 if moved_units_this_turn[r, c]: continue
                 unit_type = units_board[r, c]
+                # Движение
                 for dr in [-1, 0, 1]:
                     for dc in [-1, 0, 1]:
                         if dr == 0 and dc == 0: continue
@@ -153,14 +155,17 @@ def _get_legal_moves_numba(units_board, territory_board, moved_units_this_turn, 
                             target_cell_unit = units_board[nr, nc]
                             can_move = False
                             if unit_type == my_warrior_type:
-                                if target_cell_unit * current_player <= 0: can_move = True
+                                if target_cell_unit * current_player <= 0: can_move = True # Воин может атаковать
                             elif unit_type == my_peasant_type:
-                                if target_cell_unit == C.EMPTY: can_move = True
+                                if target_cell_unit == C.EMPTY: can_move = True # Крестьянин ходит на пустые
                             if can_move:
                                 legal_moves.append(np.array([1, r, c, nr, nc], dtype=np.int16))
+                            # Слияние
                             if unit_type == my_peasant_type and target_cell_unit == my_peasant_type and my_coins >= C.WARRIOR_MERGE_COST:
+                                # Чтобы избежать дубликатов (pos1, pos2) и (pos2, pos1)
                                 if r < nr or (r == nr and c < nc):
                                     legal_moves.append(np.array([2, r, c, nr, nc], dtype=np.int16))
+    # Генерация построек
     for r in range(board_size):
         for c in range(board_size):
             if territory_board[r, c] == current_player:
@@ -171,17 +176,18 @@ def _get_legal_moves_numba(units_board, territory_board, moved_units_this_turn, 
                         legal_moves.append(np.array([4, r, c, 0, 0], dtype=np.int16))
     return legal_moves
 
-# <<< НОВАЯ, СКОМПИЛИРОВАННАЯ ФУНКЦИЯ для get_game_ended >>>
 @numba.njit(cache=True)
 def _get_game_ended_numba(units_board, territory_board, current_player, turn_count, max_turns, board_size):
+    # Проверка на отсутствие юнитов у текущего игрока
     my_units = 0
     for r in range(board_size):
         for c in range(board_size):
             if units_board[r, c] * current_player > 0:
                 my_units += 1
     if my_units == 0:
-        return -current_player
+        return -current_player # Победил другой игрок
 
+    # Проверка на захват всей территории
     p1_territory = 0; p2_territory = 0
     for r in range(board_size):
         for c in range(board_size):
@@ -191,9 +197,10 @@ def _get_game_ended_numba(units_board, territory_board, current_player, turn_cou
     if p1_territory == board_size ** 2: return 1
     if p2_territory == board_size ** 2: return -1
     
+    # Проверка на лимит ходов
     if turn_count >= max_turns:
         if p1_territory > p2_territory: return 1
         if p2_territory > p1_territory: return -1
-        return 1e-4
+        return 1e-4 # Ничья
         
-    return 0
+    return 0 # Игра не окончена

@@ -1,5 +1,3 @@
-# main.py
-
 import pygame
 import sys
 import torch
@@ -47,7 +45,6 @@ class GameApp:
     def setup_game(self, mode):
         self.game_state = GameState()
         if mode == 'bvb':
-            # <<< ЭТО КЛЮЧЕВОЕ ИЗМЕНЕНИЕ №4: Передаем VISUAL_CPUCT в конструктор >>>
             self.players = {PLAYER_1: AIPlayer(PLAYER_1, self.ai_model, device=self.device, c_puct=VISUAL_CPUCT),
                             PLAYER_2: AIPlayer(PLAYER_2, self.ai_model, device=self.device, c_puct=VISUAL_CPUCT)}
         elif mode == 'pvb':

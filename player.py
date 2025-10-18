@@ -1,5 +1,3 @@
-# player.py
-
 import pygame
 from constants import *
 from player_base import Player
@@ -32,7 +30,7 @@ class HumanPlayer(Player):
                 clicked_pos = (r, c)
                 legal_moves = game_state.get_legal_moves()
 
-                if event.button == 1: # Левая кнопка
+                if event.button == 1:
                     if self.selected_unit_pos:
                         from_pos = self.selected_unit_pos
                         move_action = ('move', from_pos, clicked_pos)
@@ -46,24 +44,22 @@ class HumanPlayer(Player):
                             return merge_action
                         else:
                             unit_at_click = game_state.units_board[clicked_pos] * self.player_id
-                            # <<< ИСПРАВЛЕНИЕ: Правильная проверка для NumPy массива >>>
                             if unit_at_click > 0 and not game_state.moved_units_this_turn[clicked_pos]:
                                 self.selected_unit_pos = clicked_pos
                             else:
                                 self.selected_unit_pos = None
                     else: 
                         unit_at_click = game_state.units_board[clicked_pos]
-                        # <<< ИСПРАВЛЕНИЕ: Правильная проверка для NumPy массива >>>
                         if unit_at_click * self.player_id > 0 and not game_state.moved_units_this_turn[clicked_pos]:
                             self.selected_unit_pos = clicked_pos
                 
-                elif event.button == 2: # Колесико
+                elif event.button == 2:
                     self.selected_unit_pos = None
                     build_action = ('build_warrior', clicked_pos)
                     if build_action in legal_moves:
                         return build_action
 
-                elif event.button == 3: # Правая кнопка
+                elif event.button == 3:
                     self.selected_unit_pos = None
                     build_action = ('build_peasant', clicked_pos)
                     if build_action in legal_moves:

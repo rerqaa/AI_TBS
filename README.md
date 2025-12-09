@@ -1,4 +1,4 @@
-# ⚔️ AI-Powered Turn-Based Strategy
+# AI-Powered Turn-Based Strategy
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange)
@@ -7,15 +7,15 @@
 
 A high-performance, AI-driven Turn-Based Strategy (TBS) game built from scratch using **Python** and **PyTorch**. This project demonstrates the implementation of a state-of-the-art **AlphaZero-style reinforcement learning agent** capable of mastering complex strategic gameplay through self-play.
 
-## 🌟 Key Features
+## Key Features
 
-*   **Advanced AI Agent**: Implements a Deep ResNet model combined with Monte Carlo Tree Search (MCTS), inspired by DeepMind's AlphaZero.
+*   **AI Agent**: Implements a Deep ResNet model combined with Monte Carlo Tree Search (MCTS), inspired by DeepMind's AlphaZero.
 *   **High-Performance Engine**: Game logic is optimized using **Numba** (JIT compilation), enabling thousands of simulations per second for rapid training.
 *   **Interactive Visualization**: A clean, responsive GUI built with **Pygame** allows for real-time observation of AI matches or Human vs. AI gameplay.
-*   **Robust Training Pipeline**: Includes a multi-process training system with experience replay, symmetry augmentation, and adaptive learning rate scheduling.
+*   **Training Pipeline**: Includes a multi-process training system with experience replay, symmetry augmentation, and adaptive learning rate scheduling.
 *   **TensorBoard Integration**: Real-time monitoring of training metrics (loss, win rates, game length).
 
-## 🎮 The Game
+## The Game
 
 The game is a 1x1 tactical strategy played on a 10x10 grid.
 
@@ -30,7 +30,7 @@ The game is a 1x1 tactical strategy played on a 10x10 grid.
     *   **Merge**: Two peasants can merge into a Warrior.
     *   **Upkeep**: Units require gold maintenance every turn.
 
-## 🚀 Installation
+## Installation
 
 1.  **Clone the repository:**
     ```bash
@@ -45,7 +45,7 @@ The game is a 1x1 tactical strategy played on a 10x10 grid.
     ```
     *Note: A CUDA-capable GPU is highly recommended for training the AI.*
 
-## 🕹️ Usage
+## Usage
 
 ### Play the Game
 Run the main application to open the menu. You can choose between **AI vs AI**, **Human vs AI**, or **Human vs Human**.
@@ -71,7 +71,7 @@ Visualize training progress with TensorBoard:
 tensorboard --logdir=runs
 ```
 
-## 🧠 Technical Deep Dive
+## Technical Deep Dive
 
 ### Neural Network Architecture (`model.py`)
 The core of the AI is a **Residual Neural Network (ResNet)**:
@@ -90,7 +90,7 @@ The agent uses MCTS to look ahead and evaluate future states.
 ### Optimization (`game_state.py`)
 To handle the computational load of MCTS (which requires thousands of game state simulations), the core game logic is written with **Numba's `@njit` decorator**. This compiles Python code to optimized machine code, resulting in a **100x-1000x speedup** compared to standard Python, making Python a viable language for this compute-intensive task.
 
-## 📂 Project Structure
+## Project Structure
 
 *   `main.py`: Entry point for the GUI application.
 *   `train.py`: Main training loop (Self-Play -> Training -> Evaluation).
@@ -101,13 +101,12 @@ To handle the computational load of MCTS (which requires thousands of game state
 *   `bots.py`: Wrapper classes for AI and Random agents.
 *   `constants.py`: Game configuration (Board size, Costs, etc.).
 
-## 🔮 Future Improvements
+## Future Improvements
 
-*   [ ] Implement online multiplayer.
 *   [ ] Add more unit types and terrain features.
 *   [ ] Export model to ONNX for web-based inference.
 *   [ ] Visualize MCTS search tree in real-time.
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

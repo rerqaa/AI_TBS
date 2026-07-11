@@ -34,7 +34,7 @@ The game is a 1x1 tactical strategy played on a 10x10 grid.
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/yourusername/AI_TBS.git
+    git clone https://github.com/rerqaa/AI_TBS.git
     cd AI_TBS
     ```
 
